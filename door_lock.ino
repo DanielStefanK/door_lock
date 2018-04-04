@@ -1,10 +1,13 @@
 #include <SPI.h>
+#include <Wire.h> 
 #include <MFRC522.h>
 #include <EEPROM.h> 
-#include <MaxMatrix.h>
+#include <LCD.h>
+#include <LiquidCrystal_I2C.h>
 
 #define RST_PIN   9
 #define SS_PIN    10
+#define BACKLIGHT_PIN 2
 
 int beep = 7;               //active buzzer
 int door = 8;               // door buzzer
@@ -23,11 +26,9 @@ int maxInUse = 1;           // if the matrix is in use
 int state = 0;              //state of the application
 
 unsigned long previousMillis = 0; // intervasl for loading animation
-int loading = 0;                  // row of the bar whil loading
-bool up = true;                   //either going up or down
 
 MFRC522 mfrc522(SS_PIN, RST_PIN); //setup of the RFID reader 
-MaxMatrix m(data, load, clock, maxInUse);// setup of the matrix
+LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE); 
 
 void setup() {
   SPI.begin(); 
@@ -36,9 +37,10 @@ void setup() {
     ;
   }
   
-  m.init(); 
-  m.setIntensity(1);
-  m.clear();
+  lcd.backlight();              
+  lcd.begin(16,2);                   
+  lcd.clear();
+  lcd.home (); 
   
   pinMode(beep, OUTPUT);
   pinMode(door, OUTPUT);
@@ -46,67 +48,119 @@ void setup() {
   mfrc522.PCD_Init();
 
   //for (int i = 0; i < 512; i++)
-  //EEPROM.write(i, 0);
+  //  EEPROM.write(i, 0);
   // check for mastercard in storage of nothing found 
   if (EEPROM.read(1) != 143) {
+    lcd.clear();
+    lcd.home (); 
+    lcd.print("No Mastercard.");
+    lcd.setCursor ( 0, 1 );
+    lcd.print("Please scan one."); 
     do {
       successRead = getID();
-      loadingAni();
     }
     while (!successRead);
     for ( uint8_t j = 0; j < 4; j++ ) {
       EEPROM.write( 2 + j, readCard[j] );
     }
     EEPROM.write(1, 143);
+    lcd.clear();
+    lcd.home ();
+    lcd.print("Mastercard");
+    lcd.setCursor ( 0, 1 );
+    lcd.print("scanned");
+    tone(beep,2000,100);
+    delay(110);
+    tone(beep,4000,300);
   }
+  
   for ( uint8_t i = 0; i < 4; i++ ) {      
     masterCard[i] = EEPROM.read(2 + i);  
   }
-  
+  previousMillis = millis();
+  lcd.clear();
 }
 
 
 void loop() {
   switch(state) {
     case 0: {
+      lcd.clear();
+      lcd.home ();
+      lcd.print("Scan Tag");
       do {
         successRead = getID();
+        noBacklight();
       } while (!successRead);
-      if(isMaster(readCard)){
+      
+      
+      if(isMaster(readCard)){ 
+        previousMillis = millis();
+        lcd.backlight();
         state = 1;
-        tone(beep, 5000,100);
       }else {
         if ( findID(readCard) ) { // If not, see if the card is in the EEPROM
+          previousMillis = millis();
+          lcd.backlight();
           digitalWrite(door, HIGH);
-          checkAni();
+          lcd.clear();
+          lcd.home ();
+          lcd.print("Tag accepted");
+          lcd.setCursor ( 0, 1 );
+          lcd.print("Please enter");
+          tone(beep, 4000,100);
+          delay(110);
+          tone(beep, 5900,300);
           delay(2000);
           digitalWrite(door, LOW);
         }
         else {      // If not, show that the ID was not valid
-          incorrect();
+          lcd.clear();
+          lcd.home ();
+          lcd.print("Tag invalid");
+          lcd.setCursor ( 0, 1 );
+          lcd.print("");
+          tone(beep, 3500,400);
+          delay(1600);
         }
       }
       }
       break;
     case 1: {
+        lcd.clear();
+        lcd.home ();
+        lcd.print("Programmingmode");
+        lcd.setCursor ( 0, 1 );
+        lcd.print("remove/add tags");
+        tone(beep, 6000,100);
        do {
         successRead = getID();
-        loadingAni();
         
       } while (!successRead);
       if(isMaster(readCard)){
         state = 0;
-        tone(beep, 5000,100);
+        tone(beep, 4000,100);
       } else {
         if ( findID(readCard) ) {
-          incorrect();
           deleteID(readCard);
+          lcd.setCursor ( 0, 1 );
+          lcd.print("Tag removed    ");
+          tone(beep, 5900,100);
+          delay(110);
+          tone(beep, 3500,300);
+          delay(2000);
         }
         else {
-          checkAni();
           writeID(readCard);
+          lcd.setCursor ( 0, 1 );
+          lcd.print("Tag added      ");
+          tone(beep, 4000,100);
+          delay(110);
+          tone(beep, 5900,300);
+          delay(2000);
         }
       }
+      previousMillis = millis();
       }
       break;
     }
@@ -227,76 +281,19 @@ boolean checkTwo ( byte a[], byte b[] ) {
 }
 
 void checkAni(){
-  tone(beep,3000,100);
-  m.setDot(0,4,1);
-  delay(100);
-  tone(beep,5000,300);
-  m.setDot(1,5,1);
-  delay(90);
-  m.setDot(2,6,1);
-  delay(80);
-  m.setDot(3,5,1);
-  delay(60);
-  m.setDot(4,4,1);
-  delay(40);
-  m.setDot(5,3,1);
-  delay(20);
-  m.setDot(6,2,1);
-  delay(10);
-  m.setDot(7,1,1);
-  delay(1000);
-  m.clear();
+  tone(beep,2000,100);
+  delay(110);
+  tone(beep,4000,300);
+  
 }
 void incorrect(){
-  tone(beep, 5000,100);
-  
-  m.setDot(1,1,1);
-  delay(100);
-  m.setDot(2,2,1);
-  tone(beep,3000,300);
-  delay(80);
-  m.setDot(3,3,1);
-  delay(60);
-  m.setDot(4,4,1);
-  delay(40);
-  m.setDot(5,5,1);
-  delay(20);
-  m.setDot(6,6,1);
-  delay(100);
-  m.setDot(6,1,1);
-  delay(90);
-  m.setDot(5,2,1);
-  delay(80);
-  m.setDot(4,3,1);
-  delay(60);
-  m.setDot(3,4,1);
-  delay(40);
-  m.setDot(2,5,1);
-  delay(20);
-  m.setDot(1,6,1);
-  delay(1000);
-  m.clear();
+  tone(beep, 2000,100);
+  delay(110);
+  tone(beep,1000,300);
+
 }
 void loadingAni(){
-  unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= 50) {
-    previousMillis = currentMillis;
-    m.setColumnAll(loading, 255);
-    delay(50);
-    m.setColumn(loading, 0);
-    if(up && loading==7){
-      up = false;
-      loading--;
-    } else if (up && loading<7){
-      loading++;
-    } else if (!up && loading==0){
-      up = true;
-      loading++;
-    } else {
-      loading--;
-    }
-    m.clear();
-  }
+  
 }
 
 uint8_t getID() {
@@ -334,6 +331,12 @@ void ShowReaderDetails() {
   // When 0x00 or 0xFF is returned, communication probably failed
   if ((v == 0x00) || (v == 0xFF)) {
     Serial.println(F("WARNING: Communication failure, is the MFRC522 properly connected?"));
+  }
+}
+
+void noBacklight(){
+  if(millis() - previousMillis > 10000){
+    lcd.noBacklight();
   }
 }
 
